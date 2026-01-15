@@ -7,76 +7,72 @@ import { ServiceCard } from "@/components/service-card"
 import { Button } from "@/components/ui/button"
 import type { Location, Service, ServiceCategory } from "@/lib/types"
 
-const DUMMY_SERVICES: Service[] = [
-  {
-    id: "1",
-    name: "City Food Bank",
-    category: "FOOD",
-    address: "123 Main Street, Downtown",
-    distance_km: 2.3,
-    availability: "AVAILABLE",
-    phone: "(555) 123-4567",
-    email: "info@cityfoodbank.org",
-  },
-  {
-    id: "2",
-    name: "Hope Shelter",
-    category: "SHELTER",
-    address: "456 Oak Avenue, Riverside",
-    distance_km: 3.8,
-    availability: "AVAILABLE",
-    phone: "(555) 234-5678",
-    email: "help@hopeshelter.org",
-  },
-  {
-    id: "3",
-    name: "Community Health Center",
-    category: "MEDICAL",
-    address: "789 Health Plaza, Midtown",
-    distance_km: 1.5,
-    availability: "LIMITED",
-    phone: "(555) 345-6789",
-    email: "services@commhealth.org",
-  },
-  {
-    id: "4",
-    name: "Mental Wellness Hub",
-    category: "MENTAL_HEALTH",
-    address: "321 Peace Lane, Westside",
-    distance_km: 4.2,
-    availability: "AVAILABLE",
-    phone: "(555) 456-7890",
-    email: "support@mentalwellness.org",
-  },
-]
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL
 
 export default function DiscoverPage() {
   const [location, setLocation] = useState<Location | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | "">("")
   const [services, setServices] = useState<Service[]>([])
   const [hasSearched, setHasSearched] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleLocationSelect = (selectedLocation: Location) => {
     setLocation(selectedLocation)
+    setServices([])
+    setHasSearched(false)
   }
 
-  const handleCategoryChange = (category: ServiceCategory) => {
+  const handleCategoryChange = async (category: ServiceCategory) => {
     setSelectedCategory(category)
     if (location) {
-      const filtered = DUMMY_SERVICES.filter((service) => service.category === category)
-      setServices(filtered.length > 0 ? filtered : DUMMY_SERVICES.slice(0, 2))
-      setHasSearched(true)
+      await searchServices(location, category)
     }
   }
 
-  const handleSearchServices = () => {
-    if (!location || !selectedCategory) {
-      return
-    }
-
-    const filtered = DUMMY_SERVICES.filter((service) => service.category === selectedCategory)
-    setServices(filtered.length > 0 ? filtered : DUMMY_SERVICES.slice(0, 2))
+  const searchServices = async (loc: Location, category: ServiceCategory) => {
+    setLoading(true)
     setHasSearched(true)
+    setError(null)
+
+    try {
+      const res = await fetch(`${API_BASE}/api/discover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category,
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+        }),
+      })
+
+      if (!res.ok) {
+        throw new Error("Failed to fetch services")
+      }
+
+      const data = await res.json()
+
+      const mapped: Service[] = data.places.map((p: any, i: number) => ({
+        id: String(i),
+        name: p.name,
+        category,
+        address: p.address,
+        distance_km: p.distance_km,
+        phone: p.phone || null,
+        rating: p.rating || null,
+        reviews: p.reviews || null,
+        open_now: p.open_now,
+        maps_url: p.maps_url,
+      }))
+
+      setServices(mapped)
+    } catch (err: any) {
+      console.error(err)
+      setError("Unable to load nearby services. Please try again.")
+      setServices([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const isSearchEnabled = location !== null && selectedCategory !== ""
@@ -86,6 +82,7 @@ export default function DiscoverPage() {
       <Navbar />
       <main className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
         <div className="container mx-auto max-w-4xl px-4 py-8">
+
           {/* Page Title */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold mb-2 text-foreground">Discover Services</h1>
@@ -95,13 +92,14 @@ export default function DiscoverPage() {
           {/* Search Form */}
           <div className="bg-card border border-border rounded-xl p-6 mb-8 shadow-sm">
             <div className="space-y-6">
-              {/* Location Section */}
+
+              {/* Location */}
               <div>
                 <h3 className="font-bold mb-3 text-foreground">
                   {location ? "✓ Location Selected" : "Step 1: Select Your Location"}
                 </h3>
                 {!location ? (
-                  <LocationPrompt onLocationSelect={handleLocationSelect} isLoading={false} />
+                  <LocationPrompt onLocationSelect={handleLocationSelect} isLoading={loading} />
                 ) : (
                   <div className="flex items-center justify-between bg-gradient-to-r from-primary/10 to-primary/5 p-4 rounded-lg border border-primary/20">
                     <span className="text-sm font-medium text-foreground">
@@ -122,9 +120,10 @@ export default function DiscoverPage() {
                 )}
               </div>
 
-              {/* Category Selection */}
+              {/* Category */}
               <div>
                 <h3 className="font-bold mb-3 text-foreground">Step 2: What Help Do You Need?</h3>
+
                 <div className="block md:hidden">
                   <CategoryDropdownMobile
                     value={selectedCategory}
@@ -132,6 +131,7 @@ export default function DiscoverPage() {
                     disabled={!location}
                   />
                 </div>
+
                 <div className="hidden md:block">
                   <CategoryDropdownWithEmergency
                     value={selectedCategory}
@@ -140,22 +140,49 @@ export default function DiscoverPage() {
                   />
                 </div>
               </div>
+
+              {/* Search Button for mobile */}
+              <div className="md:hidden">
+                <Button
+                  onClick={() => location && selectedCategory && searchServices(location, selectedCategory)}
+                  disabled={!isSearchEnabled || loading}
+                >
+                  {loading ? "Searching..." : "Search"}
+                </Button>
+              </div>
             </div>
           </div>
 
-          {/* Results Section */}
+          {/* Results */}
           {hasSearched && (
             <div>
-              <h2 className="text-2xl font-bold mb-4 text-foreground">Services Found ({services.length})</h2>
-              {services.length > 0 ? (
+              <h2 className="text-2xl font-bold mb-4 text-foreground">
+                Services Found ({services.length})
+              </h2>
+
+              {loading && <p className="text-muted-foreground">Loading services...</p>}
+
+              {error && (
+                <p className="text-red-600 mb-4">
+                  {error}
+                </p>
+              )}
+
+              {!loading && services.length > 0 && (
                 <div className="grid md:grid-cols-2 gap-6">
                   {services.map((service) => (
-                    <ServiceCard key={service.id} service={service} hideLocation={selectedCategory === "EMERGENCY"} />
+                    <ServiceCard
+                      key={service.id}
+                      service={service}
+                      hideLocation={selectedCategory === "EMERGENCY"}
+                    />
                   ))}
                 </div>
-              ) : (
+              )}
+
+              {!loading && services.length === 0 && (
                 <div className="text-center py-8 bg-card rounded-xl border border-border">
-                  <p className="text-muted-foreground">No services found. Try adjusting your search criteria.</p>
+                  <p className="text-muted-foreground">No services found nearby.</p>
                 </div>
               )}
             </div>
@@ -166,56 +193,21 @@ export default function DiscoverPage() {
   )
 }
 
-function CategoryDropdownMobile({
+/* Dropdown Components */
+
+function CategoryDropdownMobile({...args}) { return <DropdownBase {...args} /> }
+function CategoryDropdownWithEmergency({...args}) { return <DropdownBase {...args} /> }
+
+function DropdownBase({
   value,
   onValueChange,
   disabled,
 }: {
   value: ServiceCategory | ""
-  onValueChange: (value: ServiceCategory | "EMERGENCY") => void
+  onValueChange: (value: ServiceCategory) => void
   disabled?: boolean
 }) {
-  const CATEGORIES: { value: ServiceCategory | "EMERGENCY"; label: string }[] = [
-    { value: "FOOD", label: "Food & Nutrition" },
-    { value: "SHELTER", label: "Shelter & Housing" },
-    { value: "MEDICAL", label: "Medical Help" },
-    { value: "MENTAL_HEALTH", label: "Mental Health Support" },
-    { value: "COMMUNITY_NGOS", label: "Community NGOs" },
-    { value: "RETIREMENT_HOMES", label: "Retirement Homes" },
-    { value: "EDUCATION", label: "Education & Training" },
-    { value: "FINANCIAL", label: "Financial Assistance" },
-    { value: "LEGAL", label: "Legal & Administrative" },
-    { value: "TRANSPORTATION", label: "Transportation & Mobility" },
-    { value: "EMERGENCY", label: "🚨 Emergency" },
-  ]
-
-  return (
-    <select
-      value={value}
-      onChange={(e) => onValueChange(e.target.value as ServiceCategory | "EMERGENCY")}
-      disabled={disabled}
-      className="w-full px-4 py-2 border border-border rounded-lg bg-card text-foreground disabled:opacity-50"
-    >
-      <option value="">Select a category...</option>
-      {CATEGORIES.map((category) => (
-        <option key={category.value} value={category.value}>
-          {category.label}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function CategoryDropdownWithEmergency({
-  value,
-  onValueChange,
-  disabled,
-}: {
-  value: ServiceCategory | ""
-  onValueChange: (value: ServiceCategory | "EMERGENCY") => void
-  disabled?: boolean
-}) {
-  const CATEGORIES: { value: ServiceCategory | "EMERGENCY"; label: string }[] = [
+  const CATEGORIES: { value: ServiceCategory; label: string }[] = [
     { value: "FOOD", label: "Food & Nutrition" },
     { value: "SHELTER", label: "Shelter & Housing" },
     { value: "MEDICAL", label: "Medical Help" },
@@ -231,21 +223,14 @@ function CategoryDropdownWithEmergency({
 
   return (
     <div className="flex flex-wrap gap-2">
-      {CATEGORIES.map((category) => (
+      {CATEGORIES.map((c) => (
         <Button
-          key={category.value}
-          onClick={() => onValueChange(category.value)}
+          key={c.value}
+          onClick={() => onValueChange(c.value)}
           disabled={disabled}
-          variant={value === category.value ? "default" : "outline"}
-          className={`${
-            value === category.value
-              ? category.value === "EMERGENCY"
-                ? "bg-orange-500 hover:bg-orange-600 border-orange-500"
-                : "bg-orange-500 hover:bg-orange-600 border-orange-500"
-              : "bg-card hover:bg-orange-100 border-border text-foreground"
-          }`}
+          variant={value === c.value ? "default" : "outline"}
         >
-          {category.label}
+          {c.label}
         </Button>
       ))}
     </div>

@@ -7,11 +7,11 @@ import { LocationPrompt } from "@/components/location-prompt"
 import { AgeVerification } from "@/components/age-verification"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { api } from "@/lib/api"
 import type { ChatMessage as ChatMessageType, Location, UserAgeInfo } from "@/lib/types"
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL
+
 export default function ChatPage() {
-  // Chat state
   const [messages, setMessages] = useState<ChatMessageType[]>([])
   const [inputValue, setInputValue] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -21,22 +21,14 @@ export default function ChatPage() {
   const [showAgePrompt, setShowAgePrompt] = useState(true)
   const [showLocationPrompt, setShowLocationPrompt] = useState(false)
 
-  // Location state
   const [location, setLocation] = useState<Location | null>(null)
 
-  // Refs for auto-scrolling
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  useEffect(scrollToBottom, [messages])
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  const handleAgeVerified = (verifiedAgeInfo: UserAgeInfo) => {
-    setAgeInfo(verifiedAgeInfo)
+  const handleAgeVerified = (info: UserAgeInfo) => {
+    setAgeInfo(info)
     setShowAgePrompt(false)
     setShowLocationPrompt(true)
   }
@@ -45,21 +37,19 @@ export default function ChatPage() {
     setLocation(selectedLocation)
     setShowLocationPrompt(false)
 
-    // Add a system message
-    const systemMessage: ChatMessageType = {
-      role: "assistant",
-      content:
-        "Great! I can now help you find nearby services. I can assist you with finding food, shelter, medical, or community support services. What kind of help are you looking for?",
-    }
-    setMessages([systemMessage])
+    setMessages([
+      {
+        role: "assistant",
+        content:
+          "Location set! I can help you find **food**, **shelter**, **medical**, or **community** services nearby. What do you need?",
+        timestamp: new Date(),
+      },
+    ])
   }
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !location) {
-      return
-    }
+    if (!inputValue.trim() || !location || !ageInfo) return
 
-    // Add user message
     const userMessage: ChatMessageType = {
       role: "user",
       content: inputValue,
@@ -72,24 +62,27 @@ export default function ChatPage() {
     setError(null)
 
     try {
-      // Call the chat API
-      const response = await api.post<{ reply: string }>("/api/chat", {
-        message: inputValue,
-        latitude: location.latitude,
-        longitude: location.longitude,
+      const response = await fetch(`${API_BASE}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messages.concat(userMessage).map(({ role, content }) => ({ role, content })),
+          latitude: location.latitude,
+          longitude: location.longitude,
+          age_group: ageInfo.ageCategory,
+        }),
       })
 
-      // Add assistant message
-      const assistantMessage: ChatMessageType = {
-        role: "assistant",
-        content: response.reply,
-        timestamp: new Date(),
-      }
+      if (!response.ok) throw new Error("Chat request failed")
+      const data = await response.json()
 
-      setMessages((prev) => [...prev, assistantMessage])
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.reply, timestamp: new Date() },
+      ])
     } catch (err) {
-      console.error("Error sending chat message:", err)
-      setError("Failed to send message. Please try again.")
+      console.error(err)
+      setError("Something went wrong. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -98,93 +91,78 @@ export default function ChatPage() {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-background flex flex-col">
-        <div className="flex-1 container mx-auto max-w-4xl px-4 py-8 flex flex-col">
-          {/* Page Title */}
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold mb-2">AI Assistant</h1>
-            <p className="text-muted-foreground">Get personalized help finding nearby services</p>
+      <main className="min-h-screen flex flex-col bg-background">
+        <div className="flex flex-col flex-1 container mx-auto max-w-4xl px-4 py-6">
+
+          {/* Title */}
+          <div className="mb-4">
+            <h1 className="text-3xl font-bold">AI Assistant</h1>
+            <p className="text-muted-foreground">Find nearby resources & services instantly</p>
           </div>
 
-          {/* Chat Area */}
-          <div className="flex-1 flex flex-col gap-4">
-            {showAgePrompt && (
-              <div className="bg-card border border-border rounded-lg p-6 mb-4 w-full">
-                <h2 className="font-semibold mb-4">Before We Start</h2>
-                <AgeVerification onAgeVerified={handleAgeVerified} />
-              </div>
-            )}
+          {/* Age Prompt */}
+          {showAgePrompt && (
+            <div className="bg-card border border-border rounded-lg p-6 mb-4">
+              <h2 className="font-semibold mb-3">Before We Start</h2>
+              <AgeVerification onAgeVerified={handleAgeVerified} />
+            </div>
+          )}
 
-            {showLocationPrompt && (
-              <div className="bg-card border border-border rounded-lg p-6 mb-4">
-                <h2 className="font-semibold mb-4">Set Your Location</h2>
-                <LocationPrompt onLocationSelect={handleLocationSelect} isLoading={isLoading} />
-              </div>
-            )}
+          {/* Location Prompt */}
+          {showLocationPrompt && (
+            <div className="bg-card border border-border rounded-lg p-6 mb-4">
+              <h2 className="font-semibold mb-3">Set Your Location</h2>
+              <LocationPrompt onLocationSelect={handleLocationSelect} />
+            </div>
+          )}
 
-            {/* Messages Container */}
-            {!showLocationPrompt && !showAgePrompt && (
-              <div className="flex-1 bg-card border border-border rounded-lg p-6 overflow-y-auto min-h-96">
-                {/* System Message */}
-                {messages.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <p className="mb-4">How can I help you today?</p>
-                    <p className="text-sm">
-                      I can help you find food, shelter, medical, or community support services nearby.
-                    </p>
-                  </div>
-                )}
+          {/* Chat Messages */}
+          {!showAgePrompt && !showLocationPrompt && (
+            <div
+              className="flex-1 bg-card border border-border rounded-lg p-4 overflow-y-auto"
+              style={{ maxHeight: "calc(100vh - 260px)" }}
+            >
+              {messages.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p className="mb-2">How can I help you today?</p>
+                  <p className="text-sm">Ask me about nearby food, shelter, or medical services.</p>
+                </div>
+              )}
 
-                {/* Chat Messages */}
-                {messages.map((msg, idx) => (
-                  <ChatMessage key={idx} message={msg} />
-                ))}
+              {messages.map((msg, idx) => (
+                <ChatMessage key={idx} message={msg} />
+              ))}
 
-                {/* Loading State */}
-                {isLoading && (
-                  <div className="flex justify-start mb-4">
-                    <div className="max-w-xs md:max-w-md lg:max-w-lg px-4 py-2 rounded-lg bg-muted text-muted-foreground">
-                      <div className="flex gap-2 items-center">
-                        <div className="h-2 w-2 bg-muted-foreground rounded-full animate-bounce" />
-                        <div className="h-2 w-2 bg-muted-foreground rounded-full animate-bounce delay-100" />
-                        <div className="h-2 w-2 bg-muted-foreground rounded-full animate-bounce delay-200" />
-                      </div>
-                    </div>
-                  </div>
-                )}
+              {isLoading && (
+                <div className="flex gap-2 text-muted-foreground mt-2">
+                  <span className="animate-bounce">●</span>
+                  <span className="animate-bounce delay-100">●</span>
+                  <span className="animate-bounce delay-200">●</span>
+                </div>
+              )}
 
-                {/* Error Display */}
-                {error && (
-                  <div className="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-100 rounded text-sm">
-                    {error}
-                  </div>
-                )}
+              {error && <div className="text-sm text-red-600 mt-2">{error}</div>}
 
-                <div ref={messagesEndRef} />
-              </div>
-            )}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
 
-            {/* Input Area */}
-            {!showLocationPrompt && !showAgePrompt && (
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Ask me anything about nearby services..."
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSendMessage()
-                    }
-                  }}
-                  disabled={isLoading}
-                />
-                <Button size="md" onClick={handleSendMessage} disabled={isLoading || !inputValue.trim()}>
-                  Send
-                </Button>
-              </div>
-            )}
-          </div>
+          {/* Input */}
+          {!showAgePrompt && !showLocationPrompt && (
+            <div className="flex gap-2 sticky bottom-0 bg-background pt-3 pb-3">
+              <Input
+                placeholder="Ask something..."
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                disabled={isLoading}
+              />
+              <Button onClick={handleSendMessage} disabled={isLoading || !inputValue.trim()}>
+                Send
+              </Button>
+            </div>
+          )}
+
         </div>
       </main>
     </>
