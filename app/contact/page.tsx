@@ -50,7 +50,7 @@ export default function ContactPage() {
 
     try {
       // Simulate form submission (replace with actual API call)
-      const response = await fetch("/api/contact", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/contact`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -205,7 +205,7 @@ export default function ContactPage() {
                       id="name"
                       name="name"
                       type="text"
-                      placeholder="John Doe"
+                      placeholder="Name"
                       value={formData.name}
                       onChange={handleInputChange}
                       required
@@ -286,20 +286,6 @@ export default function ContactPage() {
               </div>
             </div>
           </div>
-
-          {/* Alternative Contact Info */}
-          <section className="bg-primary/5 border border-primary/20 rounded-xl p-8 text-center">
-            <h3 className="text-lg font-semibold mb-3 text-foreground">Need Immediate Help?</h3>
-            <p className="text-muted-foreground mb-4">
-              For emergencies or urgent matters, please use our Emergency Services page or call your local emergency
-              number.
-            </p>
-            <Link href="/emergency">
-              <Button variant="outline" className="bg-primary/10 hover:bg-primary/20 text-primary">
-                View Emergency Services
-              </Button>
-            </Link>
-          </section>
         </div>
       </main>
     </>
